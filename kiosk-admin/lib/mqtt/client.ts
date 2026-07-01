@@ -66,6 +66,33 @@ export function disconnect(): void {
 }
 
 /**
+ * Publish a raw payload to a topic. Returns false if no broker is connected.
+ */
+export function publish(topic: string, payload: string): boolean {
+  if (!client?.connected) return false;
+  client.publish(topic, payload, { qos: 0 });
+  return true;
+}
+
+/**
+ * Publish a command to a device via MQTT.
+ * Topic: {prefix}/cmd/{mqttDeviceId}
+ * Payload: JSON { cmd, ...params }
+ *
+ * Returns false if the broker is not connected.
+ */
+export function publishCommand(
+  mqttDeviceId: string,
+  prefix: string,
+  cmd: string,
+  params?: Record<string, string>,
+): boolean {
+  const topic = `${prefix}/cmd/${mqttDeviceId}`;
+  const payload = JSON.stringify({ cmd, ...params });
+  return publish(topic, payload);
+}
+
+/**
  * Called once on server cold-start to reconnect if a config row exists in DB.
  * Uses a dynamic import of db to avoid circular dependency issues at module load time.
  */

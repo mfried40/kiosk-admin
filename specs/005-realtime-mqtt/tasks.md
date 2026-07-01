@@ -13,4 +13,11 @@
 - [x] Write Vitest tests for `lib/mqtt/sse.ts` (addClient, removeClient, broadcast, keep-alive)
 - [ ] Write Vitest tests for `PUT /api/config` (happy path, invalid broker URL, encrypt password)
 
-**References:** US-005-1, US-005-2, US-005-3, US-005-4
+### Command routing (US-005-5, US-005-6)
+- [ ] Add `publish(topic, payload)` to `lib/mqtt/client.ts`
+- [ ] Add `publishCommand(mqttDeviceId, prefix, cmd, params?)` helper to `lib/mqtt/client.ts`
+- [ ] Update `POST /api/devices/[id]/command` to route through MQTT when `device.mqttDeviceId` is set and broker is connected, with HTTP fallback
+- [ ] Add `transport: "mqtt" | "http"` field to command response
+- [ ] Write Vitest tests for MQTT command routing (publish called, fallback to HTTP, 502 on publish failure)
+
+**References:** US-005-1, US-005-2, US-005-3, US-005-4, US-005-5, US-005-6

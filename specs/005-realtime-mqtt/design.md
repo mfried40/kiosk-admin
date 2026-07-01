@@ -7,6 +7,8 @@
 - `connect(config: MqttConfig): Promise<void>` — creates `mqtt.connect(...)`, stores in module-level var.
 - `disconnect(): void` — calls `.end()`, nullifies var.
 - `isConnected(): boolean`.
+- `publish(topic: string, payload: string): boolean` — publishes QoS 0 to the active client; returns `false` if not connected.
+- `publishCommand(mqttDeviceId: string, prefix: string, cmd: string, params?: Record<string, string>): boolean` — convenience wrapper: builds topic `{prefix}/cmd/{mqttDeviceId}`, serialises payload as JSON `{ cmd, ...params }`, calls `publish()`.
 - Called from the MQTT config API route on save/clear.
 - On server cold-start: check DB for `MqttConfig` row; if present, auto-connect.
 
@@ -67,6 +69,27 @@ eventSource.onerror = () => {
   startPolling(30_000)  // fall back to HTTP polling
 }
 ```
+
+## Command routing in `POST /api/devices/[id]/command`
+
+After capability validation, the route chooses a transport:
+
+```
+if (device.mqttDeviceId && isConnected()) {
+  const ok = publishCommand(device.mqttDeviceId, prefix, cmd, params)
+  if (!ok) return 502 "MQTT publish failed"
+  audit log
+  return { ok: true, transport: "mqtt" }
+} else {
+  // existing path: provider.sendCommand(device, cmd, params)
+  audit log
+  return { ok: true, result, transport: "http" }
+}
+```
+
+`prefix` is read from `activeConfig.topicPrefix` (falls back to `"fully"`).
+
+The route does **not** need to know the device provider — MQTT command payloads use the Fully Kiosk REST parameter naming convention that all Kiosk apps supporting MQTT share.
 
 ## MqttConfig data model
 ```prisma

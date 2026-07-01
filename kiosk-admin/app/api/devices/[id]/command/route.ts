@@ -5,6 +5,7 @@ import { requireRole, guardErrorResponse } from "@/lib/api-guard";
 import { getProvider, assertCapability } from "@/lib/providers";
 import { ProviderCapabilityError, ProviderError } from "@/lib/provider.types";
 import { writeAuditLog } from "@/lib/audit";
+import { isConnected, publishCommand, getActiveConfig } from "@/lib/mqtt/client";
 
 // Commands that require a specific capability gate
 const CAPABILITY_MAP: Record<string, keyof import("@/lib/provider.types").ProviderCapabilities> = {
@@ -127,6 +128,25 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const provider = getProvider(device.provider);
 
+  // Route through MQTT when the device has an mqttDeviceId and the broker is up.
+  // This allows control of devices on remote networks without port forwarding.
+  if (device.mqttDeviceId && isConnected()) {
+    const prefix = getActiveConfig()?.topicPrefix ?? "fully";
+    const ok = publishCommand(device.mqttDeviceId, prefix, cmd, cmdParams as Record<string, string> | undefined);
+    if (!ok) {
+      return Response.json({ error: "MQTT publish failed — broker disconnected" }, { status: 502 });
+    }
+
+    void writeAuditLog({
+      userId: session.user!.id as string,
+      action: `command:${cmd}`,
+      deviceId: id,
+      payload: { cmd, params: cmdParams },
+    });
+
+    return Response.json({ ok: true, transport: "mqtt" });
+  }
+
   try {
     const result = await provider.sendCommand(device, cmd, cmdParams as Record<string, string> | undefined);
 
@@ -137,7 +157,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       payload: { cmd, params: cmdParams },
     });
 
-    return Response.json({ ok: true, result });
+    return Response.json({ ok: true, result, transport: "http" });
   } catch (err) {
     if (err instanceof ProviderError) {
       return Response.json({ error: err.message }, { status: 502 });
