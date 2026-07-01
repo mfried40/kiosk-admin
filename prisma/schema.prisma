@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Auth
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(VIEWER)
+  createdAt    DateTime   @default(now())
+  auditLogs    AuditLog[]
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+// Devices
+model Device {
+  id           String                @id @default(uuid())
+  name         String
+  ipAddress    String
+  port         Int
+  passwordEnc  String?
+  provider     Provider              @default(FULLY_KIOSK)
+  mqttDeviceId String?
+  groupId      String?
+  group        Group?                @relation(fields: [groupId], references: [id])
+  tags         DeviceTag[]
+  history      DeviceStatusHistory[]
+  auditLogs    AuditLog[]
+  alertRules   AlertRule[]
+  notifications Notification[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+}
+
+enum Provider {
+  FULLY_KIOSK
+  FREE_KIOSK
+}
+
+model Group {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  devices     Device[]
+}
+
+model Tag {
+  id      String      @id @default(uuid())
+  name    String      @unique
+  devices DeviceTag[]
+}
+
+model DeviceTag {
+  deviceId String
+  tagId    String
+  device   Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id])
+
+  @@id([deviceId, tagId])
+}
+
+// Status history (delete-on-write pruning)
+model DeviceStatusHistory {
+  id           String   @id @default(uuid())
+  deviceId     String
+  online       Boolean
+  batteryLevel Float?
+  currentUrl   String?
+  screenOn     Boolean?
+  recordedAt   DateTime @default(now())
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, recordedAt])
+}
+
+// MQTT
+model MqttConfig {
+  id          String  @id @default(uuid())
+  brokerUrl   String
+  username    String?
+  passwordEnc String?
+  topicPrefix String  @default("fully")
+}
+
+// Config templates
+model ConfigTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  provider  Provider
+  settings  String
+  createdAt DateTime @default(now())
+
+  @@unique([name, provider])
+}
+
+// Alerting
+model AlertRule {
+  id           String    @id @default(uuid())
+  deviceId     String?
+  type         AlertType
+  threshold    Float?
+  emailEnabled Boolean   @default(false)
+  emailTo      String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  device       Device?   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  deviceId  String?
+  type      AlertType
+  message   String
+  read      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  device    Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+}
+
+enum AlertType {
+  OFFLINE
+  BATTERY
+  UNPLUGGED
+}
+
+// Audit log
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  deviceId  String?
+  action    String
+  payload   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  device    Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, createdAt])
+  @@index([createdAt])
+}
+
+// App config (SMTP + retention - single row)
+model AppConfig {
+  id             String  @id @default(uuid())
+  retentionDays  Int     @default(7)
+  smtpHost       String?
+  smtpPort       Int?
+  smtpUser       String?
+  smtpPassEnc    String?
+  alertFromEmail String?
+}
