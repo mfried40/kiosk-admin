@@ -35,8 +35,31 @@ interface StatusUpdate {
 async function updateDeviceStatus(
   mqttDeviceId: string,
   fields: Partial<StatusUpdate>,
+  payloadDeviceId?: string,
+  payloadIp?: string,
 ): Promise<void> {
-  const device = await db.device.findFirst({ where: { mqttDeviceId } });
+  // 1. Fast path: exact match on stored mqttDeviceId.
+  let device = await db.device.findFirst({ where: { mqttDeviceId } });
+
+  // 2. Fully Kiosk puts its own deviceId in the payload. If the admin stored a
+  //    different value in mqttDeviceId, try matching by the payload's deviceId.
+  if (!device && payloadDeviceId && payloadDeviceId !== mqttDeviceId) {
+    device = await db.device.findFirst({ where: { mqttDeviceId: payloadDeviceId } });
+  }
+
+  // 3. Auto-discover by IP address (Fully Kiosk includes `ip4` in deviceInfo).
+  //    If found, store the correct mqttDeviceId so future lookups use the fast path.
+  if (!device && payloadIp) {
+    device = await db.device.findFirst({ where: { ipAddress: payloadIp } });
+    if (device) {
+      const correctId = payloadDeviceId ?? mqttDeviceId;
+      await db.device.update({
+        where: { id: device.id },
+        data: { mqttDeviceId: correctId },
+      });
+    }
+  }
+
   if (!device) return;
 
   // Write a new history record
@@ -89,14 +112,19 @@ export function handleDeviceInfo(
     return;
   }
 
+  // Fully Kiosk includes its own deviceId and ip4 in the payload.
+  const payloadDeviceId = typeof data.deviceId === "string" ? data.deviceId : undefined;
+  const payloadIp = typeof data.ip4 === "string" ? data.ip4 : undefined;
+
   const fields: Partial<StatusUpdate> = {
     online: true,
   };
   if (typeof data.batteryLevel === "number") fields.batteryLevel = data.batteryLevel;
   if (typeof data.screenOn === "boolean") fields.screenOn = data.screenOn;
-  if (typeof data.currentPage === "string") fields.currentUrl = data.currentPage;
+  if (typeof data.currentPageUrl === "string") fields.currentUrl = data.currentPageUrl;
+  else if (typeof data.currentPage === "string") fields.currentUrl = data.currentPage;
 
-  void updateDeviceStatus(mqttDeviceId, fields);
+  void updateDeviceStatus(mqttDeviceId, fields, payloadDeviceId, payloadIp);
 }
 
 export function handleEvent(
@@ -121,18 +149,18 @@ export function handleEvent(
     }
   }
 
-  void updateDeviceStatus(mqttDeviceId, fields);
+  void updateDeviceStatus(mqttDeviceId, fields, undefined, undefined);
 }
 
 export function registerHandlers(mqttClient: MqttClient, prefix: string): void {
   // Subscribe to both topic patterns
-  mqttClient.subscribe(`${prefix}/deviceInfo/+`);
+  mqttClient.subscribe(`${prefix}/deviceinfo/+`);
   mqttClient.subscribe(`${prefix}/event/+/+`);
 
   mqttClient.on("message", (topic: string, payload: Buffer) => {
     const segments = topic.split("/");
 
-    if (segments.length === 3 && segments[1] === "deviceInfo") {
+    if (segments.length === 3 && segments[1] === "deviceinfo") {
       const mqttDeviceId = segments[2];
       handleDeviceInfo(mqttDeviceId, payload);
     } else if (segments.length === 4 && segments[1] === "event") {

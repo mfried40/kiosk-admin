@@ -23,7 +23,7 @@ As an admin, I want to configure an MQTT broker from the settings page, so that 
 As an admin, I want device cards to update instantly when the broker delivers a device event, so that I don't have to wait for a poll cycle.
 
 **Acceptance criteria**
-- WHERE MQTT is configured and connected, the system SHALL subscribe to `{prefix}/deviceInfo/{mqttDeviceId}` and `{prefix}/event/+/{mqttDeviceId}` for each device that has a `mqttDeviceId`.
+- WHERE MQTT is configured and connected, the system SHALL subscribe to `{prefix}/deviceinfo/{mqttDeviceId}` and `{prefix}/event/+/{mqttDeviceId}` for each device that has a `mqttDeviceId`.
 - WHEN a `deviceInfo` message arrives, the system SHALL update the device's status in the database and push the change to all connected SSE clients.
 - WHEN an event topic message arrives (`screenOn`, `screenOff`, `networkDisconnect`, `networkReconnect`, `unplugged`, `pluggedAC`, `onBatteryLevelChanged`, `onMotion`, `kioskLocked`, `kioskUnlocked`), the system SHALL update the relevant device status fields and push to SSE.
 - WHERE MQTT is configured, the system SHALL NOT poll for devices that have a `mqttDeviceId`.

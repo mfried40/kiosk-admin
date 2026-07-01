@@ -85,7 +85,7 @@ export class FullyKioskProvider extends BaseKioskProvider {
   }
 
   async getDeviceInfo(device: Device): Promise<DeviceInfo> {
-    const res = await this.fetch(device, "deviceInfo");
+    const res = await this.fetch(device, "getDeviceInfo");
     const data = (await res.json()) as Record<string, unknown>;
 
     return {
@@ -95,19 +95,26 @@ export class FullyKioskProvider extends BaseKioskProvider {
       screenOn:
         typeof data["screenOn"] === "boolean" ? data["screenOn"] : undefined,
       currentUrl:
+        typeof data["currentPageUrl"] === "string" ? data["currentPageUrl"] :
         typeof data["currentPage"] === "string" ? data["currentPage"] : undefined,
       deviceModel:
+        typeof data["model"] === "string" ? data["model"] :
         typeof data["deviceModel"] === "string" ? data["deviceModel"] : undefined,
       androidVersion:
         typeof data["androidVersion"] === "string" ? data["androidVersion"] : undefined,
       appVersion:
+        typeof data["version"] === "string" ? data["version"] :
         typeof data["appVersionName"] === "string" ? data["appVersionName"] : undefined,
       storageTotal:
-        typeof data["totalInternalStorage"] === "number"
+        typeof data["internalStorageTotalSpace"] === "number"
+          ? data["internalStorageTotalSpace"]
+          : typeof data["totalInternalStorage"] === "number"
           ? data["totalInternalStorage"]
           : undefined,
       storageFree:
-        typeof data["freeInternalStorage"] === "number"
+        typeof data["internalStorageFreeSpace"] === "number"
+          ? data["internalStorageFreeSpace"]
+          : typeof data["freeInternalStorage"] === "number"
           ? data["freeInternalStorage"]
           : undefined,
       brightness:
@@ -158,7 +165,12 @@ export class FullyKioskProvider extends BaseKioskProvider {
 
   async getSettings(device: Device): Promise<Record<string, string>> {
     const res = await this.fetch(device, "listSettings");
-    return (await res.json()) as Record<string, string>;
+    const raw = (await res.json()) as Record<string, unknown>;
+    // Fully Kiosk returns real JSON types (true/false/numbers).
+    // Normalise everything to strings so the UI can compare values uniformly.
+    return Object.fromEntries(
+      Object.entries(raw).map(([k, v]) => [k, String(v)]),
+    );
   }
 
   async setSetting(device: Device, key: string, value: string): Promise<void> {

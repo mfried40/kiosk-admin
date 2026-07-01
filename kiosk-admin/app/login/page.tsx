@@ -49,6 +49,7 @@ function LoginForm() {
           id="email" type="email" required autoComplete="email"
           value={email} onChange={(e) => setEmail(e.target.value)}
           className="rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          suppressHydrationWarning
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -57,6 +58,7 @@ function LoginForm() {
           id="password" type="password" required autoComplete="current-password"
           value={password} onChange={(e) => setPassword(e.target.value)}
           className="rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          suppressHydrationWarning
         />
       </div>
       <Button type="submit" disabled={loading}>

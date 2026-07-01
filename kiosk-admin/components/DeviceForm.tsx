@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Check } from "lucide-react";
+import { Plus, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,8 +36,43 @@ export function DeviceForm({ device, groups, tags, onSuccess }: DeviceFormProps)
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     device?.tags.map((t) => t.tag.id) ?? [],
   );
+  const [mqttDeviceId, setMqttDeviceId] = useState(device?.mqttDeviceId ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState("");
+
+  async function handleProbe() {
+    setProbing(true);
+    setProbeError("");
+    try {
+      const res = await fetch("/api/devices/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipAddress,
+          port: parseInt(port, 10),
+          password: password || undefined,
+          provider,
+          ...(isEditing && device?.id ? { existingDeviceId: device.id } : {}),
+        }),
+      });
+      const data = (await res.json()) as { deviceId?: string; deviceName?: string; error?: string; availableFields?: string[] };
+      if (!res.ok || !data.deviceId) {
+        const detail = data.availableFields?.length
+          ? `Available fields: ${data.availableFields.join(", ")}`
+          : (data.error ?? "No device ID returned");
+        setProbeError(detail);
+        return;
+      }
+      setMqttDeviceId(data.deviceId);
+      if (!name && data.deviceName) setName(data.deviceName);
+    } catch {
+      setProbeError("Could not reach device");
+    } finally {
+      setProbing(false);
+    }
+  }
 
   const [localGroups, setLocalGroups] = useState(groups);
   const [addingGroup, setAddingGroup] = useState(false);
@@ -97,6 +132,7 @@ export function DeviceForm({ device, groups, tags, onSuccess }: DeviceFormProps)
       ipAddress,
       port: parseInt(port, 10),
       provider,
+      ...(mqttDeviceId ? { mqttDeviceId } : {}),
       ...(groupId ? { groupId } : {}),
     };
 
@@ -234,6 +270,30 @@ export function DeviceForm({ device, groups, tags, onSuccess }: DeviceFormProps)
             placeholder={isEditing ? "••••••••" : provider === "FREE_KIOSK" ? "Leave blank if no API key" : "Remote admin password"}
             required={!isEditing && provider !== "FREE_KIOSK"}
           />
+        </div>
+
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <Label htmlFor="mqttDeviceId">MQTT Device ID</Label>
+          <div className="flex gap-2">
+            <Input
+              id="mqttDeviceId"
+              value={mqttDeviceId}
+              onChange={(e) => setMqttDeviceId(e.target.value)}
+              placeholder="Auto-filled on save, or fetch now"
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={probing || !ipAddress || !port}
+              onClick={() => void handleProbe()}
+            >
+              {probing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fetch"}
+            </Button>
+          </div>
+          {probeError && <p className="text-destructive text-xs">{probeError}</p>}
+          <p className="text-muted-foreground text-xs">Required for MQTT command routing. Click Fetch to retrieve it from the device automatically.</p>
         </div>
 
         <div className="flex flex-col gap-1.5">
