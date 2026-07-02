@@ -7,6 +7,7 @@ import type { MqttClient } from "mqtt";
 import { db } from "../db";
 import { broadcast } from "./sse";
 import { evaluateAlerts } from "../alerts";
+import { recordUnknown } from "./discovery";
 
 const HISTORY_LIMIT = 100; // keep last N records per device
 
@@ -37,6 +38,8 @@ async function updateDeviceStatus(
   fields: Partial<StatusUpdate>,
   payloadDeviceId?: string,
   payloadIp?: string,
+  payloadDeviceName?: string,
+  payloadModel?: string,
 ): Promise<void> {
   // 1. Fast path: exact match on stored mqttDeviceId.
   let device = await db.device.findFirst({ where: { mqttDeviceId } });
@@ -60,7 +63,17 @@ async function updateDeviceStatus(
     }
   }
 
-  if (!device) return;
+  if (!device) {
+    // Unknown device — record for discovery banner
+    recordUnknown({
+      mqttDeviceId,
+      deviceId: payloadDeviceId ?? mqttDeviceId,
+      deviceName: payloadDeviceName,
+      ipAddress: payloadIp,
+      model: payloadModel,
+    });
+    return;
+  }
 
   // Write a new history record
   await db.deviceStatusHistory.create({
@@ -115,6 +128,8 @@ export function handleDeviceInfo(
   // Fully Kiosk includes its own deviceId and ip4 in the payload.
   const payloadDeviceId = typeof data.deviceId === "string" ? data.deviceId : undefined;
   const payloadIp = typeof data.ip4 === "string" ? data.ip4 : undefined;
+  const payloadDeviceName = typeof data.deviceName === "string" ? data.deviceName : undefined;
+  const payloadModel = typeof data.model === "string" ? data.model : undefined;
 
   const fields: Partial<StatusUpdate> = {
     online: true,
@@ -124,7 +139,7 @@ export function handleDeviceInfo(
   if (typeof data.currentPageUrl === "string") fields.currentUrl = data.currentPageUrl;
   else if (typeof data.currentPage === "string") fields.currentUrl = data.currentPage;
 
-  void updateDeviceStatus(mqttDeviceId, fields, payloadDeviceId, payloadIp);
+  void updateDeviceStatus(mqttDeviceId, fields, payloadDeviceId, payloadIp, payloadDeviceName, payloadModel);
 }
 
 export function handleEvent(
@@ -153,20 +168,28 @@ export function handleEvent(
 }
 
 export function registerHandlers(mqttClient: MqttClient, prefix: string): void {
-  // Subscribe to both topic patterns
-  mqttClient.subscribe(`${prefix}/deviceinfo/+`);
-  mqttClient.subscribe(`${prefix}/event/+/+`);
+  mqttClient.subscribe(`${prefix}/deviceInfo/+`, (err) => {
+    if (err) console.error(`[MQTT] Subscribe error for ${prefix}/deviceInfo/+:`, err);
+    else console.log(`[MQTT] Subscribed to ${prefix}/deviceInfo/+`);
+  });
+  mqttClient.subscribe(`${prefix}/event/+/+`, (err) => {
+    if (err) console.error(`[MQTT] Subscribe error for ${prefix}/event/+/+:`, err);
+    else console.log(`[MQTT] Subscribed to ${prefix}/event/+/+`);
+  });
 
   mqttClient.on("message", (topic: string, payload: Buffer) => {
+    console.log(`[MQTT] ← ${topic} (${payload.length}b)`);
     const segments = topic.split("/");
 
-    if (segments.length === 3 && segments[1] === "deviceinfo") {
+    if (segments.length === 3 && segments[1] === "deviceInfo") {
       const mqttDeviceId = segments[2];
       handleDeviceInfo(mqttDeviceId, payload);
     } else if (segments.length === 4 && segments[1] === "event") {
       const eventName = segments[2];
       const mqttDeviceId = segments[3];
       handleEvent(eventName, mqttDeviceId, payload);
+    } else {
+      console.log(`[MQTT] ← unmatched topic pattern: ${topic}`);
     }
   });
 }

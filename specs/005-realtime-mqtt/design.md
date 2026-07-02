@@ -17,7 +17,7 @@
 - `handleEvent(event, mqttDeviceId, payload)` — map event name to status fields, same update+broadcast path.
 - Topic subscription registered once after client connects:
   ```
-  {prefix}/deviceinfo/+
+  {prefix}/deviceInfo/+
   {prefix}/event/+/+
   ```
   Handler parses device ID from topic segments.

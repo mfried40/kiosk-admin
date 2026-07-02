@@ -41,6 +41,7 @@ export class FullyKioskProvider extends BaseKioskProvider {
     hasInjectJS: true,
     hasFileTransfer: true,
     hasApkManagement: true,
+    hasMqttCommands: false, // Fully Kiosk MQTT is publish-only
   };
 
   private baseUrl(device: Device): string {

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DeviceCard } from "@/components/DeviceCard";
 import { DeviceForm } from "@/components/DeviceForm";
+import { DiscoveredDevicesBanner } from "@/components/DiscoveredDevicesBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import type { DeviceWithRelations, DeviceInfo } from "@/lib/types";
 import type { Group, Tag } from "@/lib/generated/prisma/client";
+import type { UnknownDevice } from "@/lib/mqtt/discovery";
 import { Plus, RefreshCw, Zap, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -49,6 +51,8 @@ export default function DashboardPage() {
   const [bulkCmd, setBulkCmd] = useState("");
   const [bulkSending, setBulkSending] = useState(false);
   const [sseActive, setSseActive] = useState(false);
+  const [unknownDevices, setUnknownDevices] = useState<UnknownDevice[]>([]);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   // Sync filters to URL
   useEffect(() => {
@@ -105,12 +109,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const fetchMeta = async () => {
-      const [gRes, tRes] = await Promise.all([
+      const [gRes, tRes, uRes, unknownRes] = await Promise.all([
         fetch("/api/groups"),
         fetch("/api/tags"),
+        fetch("/api/auth/session"),
+        fetch("/api/devices/unknown"),
       ]);
       if (gRes.ok) setGroups((await gRes.json()) as Pick<Group, "id" | "name">[]);
       if (tRes.ok) setTags((await tRes.json()) as Pick<Tag, "id" | "name">[]);
+      if (uRes.ok) {
+        const session = (await uRes.json()) as { user?: { role?: string } };
+        setUserRole(session.user?.role ?? null);
+      }
+      if (unknownRes.ok) setUnknownDevices((await unknownRes.json()) as UnknownDevice[]);
     };
     void fetchMeta();
   }, []);
@@ -131,6 +142,19 @@ export default function DashboardPage() {
         ...prev,
         [deviceId]: { ...(prev[deviceId] ?? {}), ...fields } as (typeof prev)[string],
       }));
+    });
+
+    es.addEventListener("unknown-device", (e) => {
+      const entry = JSON.parse(e.data) as UnknownDevice;
+      setUnknownDevices((prev) => [
+        ...prev.filter((d) => d.mqttDeviceId !== entry.mqttDeviceId),
+        entry,
+      ]);
+    });
+
+    es.addEventListener("unknown-device-dismissed", (e) => {
+      const { mqttDeviceId } = JSON.parse(e.data) as { mqttDeviceId: string };
+      setUnknownDevices((prev) => prev.filter((d) => d.mqttDeviceId !== mqttDeviceId));
     });
 
     es.onerror = () => {
@@ -328,6 +352,23 @@ export default function DashboardPage() {
             <X className="h-4 w-4" />
           </Button>
         </div>
+      )}
+
+      {/* Discovery banner — ADMIN only */}
+      {userRole === "ADMIN" && (
+        <DiscoveredDevicesBanner
+          devices={unknownDevices}
+          groups={groups}
+          tags={tags}
+          onDismiss={(id) =>
+            setUnknownDevices((prev) => prev.filter((d) => d.mqttDeviceId !== id))
+          }
+          onAdded={(id) => {
+            setUnknownDevices((prev) => prev.filter((d) => d.mqttDeviceId !== id));
+            void fetchDevices();
+            toast.success("Device added");
+          }}
+        />
       )}
 
       {/* Device grid */}

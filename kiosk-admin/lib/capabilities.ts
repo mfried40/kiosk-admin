@@ -26,6 +26,7 @@ const FULLY_KIOSK_CAPS: ProviderCapabilities = {
   hasInjectJS: true,
   hasFileTransfer: true,
   hasApkManagement: true,
+  hasMqttCommands: false, // Fully Kiosk MQTT is publish-only
 };
 
 const FREE_KIOSK_CAPS: ProviderCapabilities = {
@@ -49,6 +50,7 @@ const FREE_KIOSK_CAPS: ProviderCapabilities = {
   hasTabManagement:  false,
   hasFileTransfer:   false,
   hasApkManagement:  false,
+  hasMqttCommands:   false,
 };
 
 const CAPS_MAP: Record<string, ProviderCapabilities> = {

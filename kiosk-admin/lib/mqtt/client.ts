@@ -46,11 +46,13 @@ export async function connect(config: MqttConfig): Promise<void> {
     mqttClient.once("connect", () => {
       client = mqttClient;
       activeConfig = config;
+      console.log(`[MQTT] Connected to ${config.brokerUrl} (prefix: ${config.topicPrefix})`);
       registerHandlers(mqttClient, config.topicPrefix);
       resolve();
     });
 
     mqttClient.once("error", (err) => {
+      console.error("[MQTT] Connection error:", err);
       mqttClient.end(true);
       reject(err);
     });
@@ -101,10 +103,16 @@ export async function autoConnect(): Promise<void> {
     const { db } = await import("../db");
     const config = await db.mqttConfig.findFirst();
     if (config) {
+      console.log("[MQTT] Auto-connecting to broker on startup…");
       await connect(config);
+    } else {
+      console.log("[MQTT] No broker config found — skipping auto-connect.");
     }
   } catch (err) {
     // Auto-connect is best-effort; log and continue
     console.error("[MQTT] Auto-connect failed:", err);
   }
 }
+
+// Kick off auto-connect when this module is first loaded by any route.
+void autoConnect();

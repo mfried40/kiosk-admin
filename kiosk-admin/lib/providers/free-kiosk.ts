@@ -58,6 +58,7 @@ export class FreeKioskProvider extends BaseKioskProvider {
     hasTabManagement:  false,
     hasFileTransfer:   false,
     hasApkManagement:  false,
+    hasMqttCommands:    false,
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { encrypt } from "@/lib/crypto";
 import { requireAuth, requireRole, guardErrorResponse } from "@/lib/api-guard";
 import { Provider } from "@/lib/generated/prisma/client";
+import { removeUnknown } from "@/lib/mqtt/discovery";
 
 const DeviceCreateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -107,6 +108,9 @@ export async function POST(req: NextRequest) {
       updatedAt: true,
     },
   });
+
+  // If this device was in the MQTT discovery queue, remove it
+  if (device.mqttDeviceId) removeUnknown(device.mqttDeviceId);
 
   return Response.json(device, { status: 201 });
 }

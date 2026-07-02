@@ -57,6 +57,8 @@ export interface ProviderCapabilities {
   hasFileTransfer: boolean;
   /** Install and uninstall APKs */
   hasApkManagement: boolean;
+  /** Route commands through MQTT broker instead of direct HTTP (device must subscribe to cmd topic) */
+  hasMqttCommands: boolean;
 }
 
 import type { DeviceInfo } from "@/lib/types";

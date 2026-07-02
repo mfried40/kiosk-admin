@@ -16,27 +16,36 @@ import {
 import type { DeviceWithRelations } from "@/lib/types";
 import type { Group, Tag } from "@/lib/generated/prisma/client";
 
+export interface DeviceFormInitialValues {
+  name?: string;
+  ipAddress?: string;
+  port?: number;
+  provider?: "FULLY_KIOSK" | "FREE_KIOSK";
+  mqttDeviceId?: string;
+}
+
 interface DeviceFormProps {
   device?: DeviceWithRelations;
+  initialValues?: DeviceFormInitialValues;
   groups: Pick<Group, "id" | "name">[];
   tags: Pick<Tag, "id" | "name">[];
   onSuccess?: () => void;
 }
 
-export function DeviceForm({ device, groups, tags, onSuccess }: DeviceFormProps) {
+export function DeviceForm({ device, initialValues, groups, tags, onSuccess }: DeviceFormProps) {
   const router = useRouter();
   const isEditing = Boolean(device);
 
-  const [name, setName] = useState(device?.name ?? "");
-  const [ipAddress, setIpAddress] = useState(device?.ipAddress ?? "");
-  const [port, setPort] = useState(String(device?.port ?? 2323));
+  const [name, setName] = useState(device?.name ?? initialValues?.name ?? "");
+  const [ipAddress, setIpAddress] = useState(device?.ipAddress ?? initialValues?.ipAddress ?? "");
+  const [port, setPort] = useState(String(device?.port ?? initialValues?.port ?? 2323));
   const [password, setPassword] = useState("");
-  const [provider, setProvider] = useState(device?.provider ?? "FULLY_KIOSK");
+  const [provider, setProvider] = useState<"FULLY_KIOSK" | "FREE_KIOSK">(device?.provider ?? initialValues?.provider ?? "FULLY_KIOSK");
   const [groupId, setGroupId] = useState(device?.groupId ?? "");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     device?.tags.map((t) => t.tag.id) ?? [],
   );
-  const [mqttDeviceId, setMqttDeviceId] = useState(device?.mqttDeviceId ?? "");
+  const [mqttDeviceId, setMqttDeviceId] = useState(device?.mqttDeviceId ?? initialValues?.mqttDeviceId ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);

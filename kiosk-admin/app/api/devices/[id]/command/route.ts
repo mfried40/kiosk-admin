@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole, guardErrorResponse } from "@/lib/api-guard";
 import { getProvider, assertCapability } from "@/lib/providers";
+import { getCapabilitiesForProvider } from "@/lib/capabilities";
 import { ProviderCapabilityError, ProviderError } from "@/lib/provider.types";
 import { writeAuditLog } from "@/lib/audit";
 import { isConnected, publishCommand, getActiveConfig } from "@/lib/mqtt/client";
@@ -127,10 +128,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const provider = getProvider(device.provider);
+  const caps = getCapabilitiesForProvider(device.provider);
 
-  // Route through MQTT when the device has an mqttDeviceId and the broker is up.
-  // This allows control of devices on remote networks without port forwarding.
-  if (device.mqttDeviceId && isConnected()) {
+  // Only route through MQTT if the provider explicitly supports it.
+  // Fully Kiosk MQTT is publish-only — it does not subscribe to commands.
+  if (caps.hasMqttCommands && device.mqttDeviceId && isConnected()) {
     const prefix = getActiveConfig()?.topicPrefix ?? "fully";
     const ok = publishCommand(device.mqttDeviceId, prefix, cmd, cmdParams as Record<string, string> | undefined);
     if (!ok) {
