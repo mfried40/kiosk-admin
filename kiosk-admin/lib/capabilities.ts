@@ -53,9 +53,34 @@ const FREE_KIOSK_CAPS: ProviderCapabilities = {
   hasMqttCommands:   false,
 };
 
+const FULLY_CLOUD_CAPS: ProviderCapabilities = {
+  hasScreenshot:     false,
+  hasScreenControl:  true,
+  hasUrlControl:     true,
+  hasAppRestart:     true,
+  hasKioskLock:      true,
+  hasScreensaver:    true,
+  hasTTS:            true,
+  hasVolume:         true,
+  hasFileManagement: true,
+  hasAppManagement:  true,
+  hasUsageStats:     true,
+  hasLogViewer:      true,
+  hasCamshot:        false,
+  hasMediaPlayer:    true,
+  hasMaintenance:    true,
+  hasTabManagement:  true,
+  hasAppLauncher:    true,
+  hasInjectJS:       true,
+  hasFileTransfer:   true,
+  hasApkManagement:  true,
+  hasMqttCommands:   false,
+};
+
 const CAPS_MAP: Record<string, ProviderCapabilities> = {
   FULLY_KIOSK: FULLY_KIOSK_CAPS,
   FREE_KIOSK: FREE_KIOSK_CAPS,
+  FULLY_CLOUD: FULLY_CLOUD_CAPS,
 };
 
 export function getCapabilitiesForProvider(provider: string): ProviderCapabilities {

@@ -8,6 +8,7 @@
 import { Provider } from "@/lib/provider.types";
 import { FullyKioskProvider } from "./fully-kiosk";
 import { FreeKioskProvider } from "./free-kiosk";
+import { FullyCloudProvider } from "./fully-cloud";
 import {
   BaseKioskProvider,
   ProviderCapabilities,
@@ -22,6 +23,7 @@ interface ProviderCls {
 const PROVIDERS: Record<Provider, ProviderCls> = {
   [Provider.FULLY_KIOSK]: FullyKioskProvider,
   [Provider.FREE_KIOSK]: FreeKioskProvider,
+  [Provider.FULLY_CLOUD]: FullyCloudProvider,
 };
 
 export function getProvider(provider: Provider): BaseKioskProvider {

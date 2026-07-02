@@ -20,9 +20,11 @@ export interface DeviceFormInitialValues {
   name?: string;
   ipAddress?: string;
   port?: number;
-  provider?: "FULLY_KIOSK" | "FREE_KIOSK";
+  provider?: "FULLY_KIOSK" | "FREE_KIOSK" | "FULLY_CLOUD";
   mqttDeviceId?: string;
 }
+
+type ProviderValue = "FULLY_KIOSK" | "FREE_KIOSK" | "FULLY_CLOUD";
 
 interface DeviceFormProps {
   device?: DeviceWithRelations;
@@ -40,7 +42,7 @@ export function DeviceForm({ device, initialValues, groups, tags, onSuccess }: D
   const [ipAddress, setIpAddress] = useState(device?.ipAddress ?? initialValues?.ipAddress ?? "");
   const [port, setPort] = useState(String(device?.port ?? initialValues?.port ?? 2323));
   const [password, setPassword] = useState("");
-  const [provider, setProvider] = useState<"FULLY_KIOSK" | "FREE_KIOSK">(device?.provider ?? initialValues?.provider ?? "FULLY_KIOSK");
+  const [provider, setProvider] = useState<ProviderValue>(device?.provider ?? initialValues?.provider ?? "FULLY_KIOSK");
   const [groupId, setGroupId] = useState(device?.groupId ?? "");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     device?.tags.map((t) => t.tag.id) ?? [],
@@ -50,24 +52,42 @@ export function DeviceForm({ device, initialValues, groups, tags, onSuccess }: D
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [probeError, setProbeError] = useState("");
+  // Fully Cloud: list of account devices returned by probe
+  const [cloudDevices, setCloudDevices] = useState<{ devid: string; deviceName: string; online: boolean }[]>([]);
 
   async function handleProbe() {
     setProbing(true);
     setProbeError("");
+    setCloudDevices([]);
     try {
       const res = await fetch("/api/devices/probe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ipAddress,
-          port: parseInt(port, 10),
+          ...(provider !== "FULLY_CLOUD" ? { port: parseInt(port, 10) } : {}),
           password: password || undefined,
           provider,
           ...(isEditing && device?.id ? { existingDeviceId: device.id } : {}),
         }),
       });
-      const data = (await res.json()) as { deviceId?: string; deviceName?: string; error?: string; availableFields?: string[] };
-      if (!res.ok || !data.deviceId) {
+      const data = (await res.json()) as {
+        deviceId?: string; deviceName?: string; error?: string;
+        availableFields?: string[]; rawKeys?: string[]; raw?: string;
+        cloudDevices?: { devid: string; deviceName: string; online: boolean }[];
+      };
+      if (!res.ok) {
+        setProbeError(data.error ?? "Probe failed");
+        return;
+      }
+
+      // Fully Cloud returns a list of account devices
+      if (data.cloudDevices) {
+        setCloudDevices(data.cloudDevices);
+        return;
+      }
+
+      if (!data.deviceId) {
         const detail = data.availableFields?.length
           ? `Available fields: ${data.availableFields.join(", ")}`
           : (data.error ?? "No device ID returned");
@@ -225,30 +245,35 @@ export function DeviceForm({ device, initialValues, groups, tags, onSuccess }: D
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="provider">Provider</Label>
-          <Select value={provider} onValueChange={(v) => { if (v) setProvider(v as "FULLY_KIOSK" | "FREE_KIOSK"); }}>
+          <Select value={provider} onValueChange={(v) => { if (v) { setProvider(v as ProviderValue); setCloudDevices([]); } }}>
             <SelectTrigger id="provider">
               <SelectValue>
-                {{ FULLY_KIOSK: "Fully Kiosk", FREE_KIOSK: "FreeKiosk" }[provider]}
+                {{ FULLY_KIOSK: "Fully Kiosk", FREE_KIOSK: "FreeKiosk", FULLY_CLOUD: "Fully Cloud" }[provider]}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="FULLY_KIOSK">Fully Kiosk</SelectItem>
               <SelectItem value="FREE_KIOSK">FreeKiosk</SelectItem>
+              <SelectItem value="FULLY_CLOUD">Fully Cloud</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ipAddress">IP Address</Label>
+          <Label htmlFor="ipAddress">
+            {provider === "FULLY_CLOUD" ? "Account Email" : "IP Address"}
+          </Label>
           <Input
             id="ipAddress"
+            type={provider === "FULLY_CLOUD" ? "email" : "text"}
             value={ipAddress}
             onChange={(e) => setIpAddress(e.target.value)}
-            placeholder="192.168.1.100"
+            placeholder={provider === "FULLY_CLOUD" ? "me@example.com" : "192.168.1.100"}
             required
           />
         </div>
 
+        {provider !== "FULLY_CLOUD" && (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="port">Port</Label>
           <Input
@@ -260,10 +285,13 @@ export function DeviceForm({ device, initialValues, groups, tags, onSuccess }: D
             onChange={(e) => setPort(e.target.value)}
           />
         </div>
+        )}
 
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <Label htmlFor="password">
-            {isEditing
+            {provider === "FULLY_CLOUD"
+              ? isEditing ? "API Key (leave blank to keep)" : "API Key"
+              : isEditing
               ? provider === "FREE_KIOSK"
                 ? "API Key (leave blank to keep or clear)"
                 : "New Password (leave blank to keep)"
@@ -276,33 +304,63 @@ export function DeviceForm({ device, initialValues, groups, tags, onSuccess }: D
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={isEditing ? "••••••••" : provider === "FREE_KIOSK" ? "Leave blank if no API key" : "Remote admin password"}
+            placeholder={isEditing ? "••••••••" : provider === "FREE_KIOSK" ? "Leave blank if no API key" : provider === "FULLY_CLOUD" ? "Fully Cloud API key" : "Remote admin password"}
             required={!isEditing && provider !== "FREE_KIOSK"}
           />
         </div>
 
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label htmlFor="mqttDeviceId">MQTT Device ID</Label>
+          <Label htmlFor="mqttDeviceId">
+            {provider === "FULLY_CLOUD" ? "Cloud Device ID" : "MQTT Device ID"}
+          </Label>
           <div className="flex gap-2">
             <Input
               id="mqttDeviceId"
               value={mqttDeviceId}
               onChange={(e) => setMqttDeviceId(e.target.value)}
-              placeholder="Auto-filled on save, or fetch now"
+              placeholder={provider === "FULLY_CLOUD" ? "Select from list after fetching" : "Auto-filled on save, or fetch now"}
               className="flex-1"
             />
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={probing || !ipAddress || !port}
+              disabled={probing || !ipAddress || (provider !== "FULLY_CLOUD" && !port)}
               onClick={() => void handleProbe()}
             >
               {probing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fetch"}
             </Button>
           </div>
           {probeError && <p className="text-destructive text-xs">{probeError}</p>}
-          <p className="text-muted-foreground text-xs">Required for MQTT command routing. Click Fetch to retrieve it from the device automatically.</p>
+
+          {/* Fully Cloud: device picker */}
+          {provider === "FULLY_CLOUD" && cloudDevices.length > 0 && (
+            <div className="rounded-md border border-input mt-1 divide-y divide-border overflow-hidden">
+              {cloudDevices.map((d) => (
+                <button
+                  key={d.devid}
+                  type="button"
+                  onClick={() => {
+                    setMqttDeviceId(d.devid);
+                    if (!name) setName(d.deviceName);
+                    setCloudDevices([]);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-accent transition-colors ${
+                    mqttDeviceId === d.devid ? "bg-accent" : ""
+                  }`}
+                >
+                  <span>{d.deviceName || d.devid}</span>
+                  <span className={`text-xs ${d.online ? "text-green-500" : "text-muted-foreground"}`}>
+                    {d.online ? "Online" : "Offline"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {provider !== "FULLY_CLOUD" && (
+            <p className="text-muted-foreground text-xs">Required for MQTT command routing. Click Fetch to retrieve it from the device automatically.</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">

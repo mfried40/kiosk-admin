@@ -45,6 +45,7 @@ model Device {
 enum Provider {
   FULLY_KIOSK
   FREE_KIOSK
+  FULLY_CLOUD
 }
 
 model Group {

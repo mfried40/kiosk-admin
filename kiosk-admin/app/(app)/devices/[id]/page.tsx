@@ -226,7 +226,9 @@ export default function DeviceDetailPage() {
           <div>
             <h1 className="text-2xl font-bold">{device.name}</h1>
             <p className="text-muted-foreground text-sm">
-              {device.ipAddress}:{device.port} · {device.provider}
+              {device.provider === "FULLY_CLOUD"
+                ? `${device.ipAddress} · Fully Cloud`
+                : `${device.ipAddress}:${device.port} · ${device.provider}`}
             </p>
           </div>
         </div>

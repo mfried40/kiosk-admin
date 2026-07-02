@@ -18,6 +18,7 @@ export type { DeviceInfo } from "@/lib/types";
 export const Provider = {
   FULLY_KIOSK: "FULLY_KIOSK",
   FREE_KIOSK: "FREE_KIOSK",
+  FULLY_CLOUD: "FULLY_CLOUD",
 } as const;
 export type Provider = (typeof Provider)[keyof typeof Provider];
 

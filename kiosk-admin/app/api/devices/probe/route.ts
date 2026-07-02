@@ -13,7 +13,7 @@ import { Provider } from "@/lib/generated/prisma/client";
 
 const ProbeSchema = z.object({
   ipAddress: z.string().min(1),
-  port: z.number().int().min(1).max(65535),
+  port: z.number().int().min(1).max(65535).optional(),
   password: z.string().optional(),
   provider: z.nativeEnum(Provider),
   /** Existing device ID — if provided, the stored encrypted password is used instead. */
@@ -50,6 +50,66 @@ export async function POST(req: NextRequest) {
     if (device?.passwordEnc) resolvedPassword = decrypt(device.passwordEnc);
   }
 
+  // ── Fully Cloud: list all devices on the account ─────────────────────────
+  if (provider === "FULLY_CLOUD") {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const url = new URL("https://api.fully-kiosk.com/cloud/devices");
+      url.searchParams.set("apiemail", ipAddress); // ipAddress field holds email for cloud
+      url.searchParams.set("apikey", resolvedPassword ?? "");
+      const res = await fetch(url.toString(), { signal: controller.signal });
+
+      const text = await res.text();
+
+      if (!res.ok) {
+        // Try to extract a friendly error from the response body
+        try {
+          const errData = JSON.parse(text) as Record<string, unknown>;
+          if (errData.statustext) return Response.json({ error: String(errData.statustext) }, { status: 502 });
+        } catch { /* ignore */ }
+        return Response.json({ error: `Fully Cloud returned ${res.status}` }, { status: 502 });
+      }
+
+      let data: unknown;
+      try { data = JSON.parse(text); } catch {
+        return Response.json({ error: "Non-JSON response from Fully Cloud", raw: text.slice(0, 200) }, { status: 502 });
+      }
+
+      // Handle error object (200 with error body)
+      if (data && !Array.isArray(data) && typeof data === "object") {
+        const obj = data as Record<string, unknown>;
+        if (obj.status === "Error") {
+          return Response.json({ error: String(obj.statustext ?? "Fully Cloud error") }, { status: 401 });
+        }
+        // Fully Cloud wraps results: { status, devices: [...] }
+        if (Array.isArray(obj.devices)) data = obj.devices;
+        else {
+          return Response.json({ error: "Unexpected response shape", rawKeys: Object.keys(obj) }, { status: 502 });
+        }
+      }
+
+      if (!Array.isArray(data)) {
+        return Response.json({ error: "Expected an array from Fully Cloud" }, { status: 502 });
+      }
+
+      const devices = (data as Record<string, unknown>[]).map((item) => ({
+        devid: String(item.devid ?? item.deviceId ?? item.id ?? ""),
+        deviceName: String(item.alias ?? item.deviceAlias ?? item.deviceName ?? item.name ?? ""),
+        online: Number(item.lastHeartbeatAge) < 5, // age in minutes
+      })).filter((d) => d.devid);
+
+      return Response.json({ cloudDevices: devices });
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        return Response.json({ error: "Fully Cloud timed out" }, { status: 504 });
+      }
+      return Response.json({ error: "Could not reach Fully Cloud" }, { status: 502 });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -57,7 +117,7 @@ export async function POST(req: NextRequest) {
     let res: Response;
 
     if (provider === "FULLY_KIOSK") {
-      const url = new URL(`http://${ipAddress}:${port}/`);
+      const url = new URL(`http://${ipAddress}:${port ?? 2323}/`);
       url.searchParams.set("cmd", "getDeviceInfo");
       url.searchParams.set("type", "json");
       if (resolvedPassword) url.searchParams.set("password", resolvedPassword);
@@ -66,7 +126,7 @@ export async function POST(req: NextRequest) {
       // FREE_KIOSK
       const headers: Record<string, string> = {};
       if (resolvedPassword) headers["X-Api-Key"] = resolvedPassword;
-      res = await fetch(`http://${ipAddress}:${port}/info`, {
+      res = await fetch(`http://${ipAddress}:${port ?? 8080}/info`, {
         headers,
         signal: controller.signal,
       });
