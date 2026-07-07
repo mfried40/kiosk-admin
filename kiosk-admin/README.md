@@ -178,3 +178,15 @@ fully-admin/
     ├── lib/        # Business logic, providers, MQTT, auth, crypto, db
     └── prisma/     # Schema and migrations
 ```
+
+---
+
+## License
+
+Kiosk Admin is released under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+You are free to use, modify, and self-host this software. If you distribute it or offer it as a network service, you must make your source code available under the same license.
+
+**Commercial license available** — if you need to use Kiosk Admin in a proprietary product, white-label it, or distribute it without the AGPL obligations, contact us for a commercial license.
+
+See [LICENSE](LICENSE) for the full license text.
