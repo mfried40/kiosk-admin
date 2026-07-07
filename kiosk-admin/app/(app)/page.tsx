@@ -83,18 +83,23 @@ export default function DashboardPage() {
 
   // Fetch live device status for all devices
   const fetchDeviceInfos = useCallback(async (devs: DeviceWithRelations[]) => {
-    for (const device of devs) {
-      setLoadingInfos((prev) => ({ ...prev, [device.id]: true }));
-      try {
-        const res = await fetch(`/api/devices/${device.id}/info`);
-        const info = (await res.json()) as DeviceInfo;
-        setDeviceInfos((prev) => ({ ...prev, [device.id]: info }));
-      } catch {
-        setDeviceInfos((prev) => ({ ...prev, [device.id]: null }));
-      } finally {
-        setLoadingInfos((prev) => ({ ...prev, [device.id]: false }));
-      }
-    }
+    // Mark all as loading immediately
+    setLoadingInfos(Object.fromEntries(devs.map((d) => [d.id, true])));
+
+    // Fetch all in parallel — one offline device won't block the others
+    await Promise.allSettled(
+      devs.map(async (device) => {
+        try {
+          const res = await fetch(`/api/devices/${device.id}/info`);
+          const info = (await res.json()) as DeviceInfo;
+          setDeviceInfos((prev) => ({ ...prev, [device.id]: info }));
+        } catch {
+          setDeviceInfos((prev) => ({ ...prev, [device.id]: null }));
+        } finally {
+          setLoadingInfos((prev) => ({ ...prev, [device.id]: false }));
+        }
+      }),
+    );
   }, []);
 
   useEffect(() => {

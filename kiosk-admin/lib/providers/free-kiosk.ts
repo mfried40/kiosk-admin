@@ -42,7 +42,7 @@ export class FreeKioskProvider extends BaseKioskProvider {
     hasScreenControl:  true,
     hasUrlControl:     true,
     hasAppRestart:     true,
-    hasKioskLock:      false, // requires Device Owner — not guaranteed
+    hasKioskLock:      true,  // /api/lock — requires Device Owner or AccessibilityService
     hasScreensaver:    true,
     hasTTS:            true,
     hasVolume:         true,
@@ -58,7 +58,8 @@ export class FreeKioskProvider extends BaseKioskProvider {
     hasTabManagement:  false,
     hasFileTransfer:   false,
     hasApkManagement:  false,
-    hasMqttCommands:    false,
+    hasMqttCommands:    true,  // FreeKiosk supports commands via {baseTopic}/{id}/set/{entity}
+    hasRemoteControl:   true,  // D-pad + keyboard via /api/remote/*
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -159,10 +160,14 @@ export class FreeKioskProvider extends BaseKioskProvider {
     switch (cmd) {
       // Screen
       case "screenOn":    return this.req(device, "POST", "/api/screen/on");
-      case "screenOff":   return this.req(device, "POST", "/api/screen/off");
+      case "screenOff":
+      case "forceSleep":  return this.req(device, "POST", "/api/screen/off");
 
       // URL / browser
       case "loadUrl":     return this.req(device, "POST", "/api/url", { url: params?.url });
+      case "loadStartUrl":
+      case "reloadStartUrl":
+      case "refreshTab":
       case "reload":      return this.req(device, "POST", "/api/reload");
       case "clearCache":  return this.req(device, "POST", "/api/clearCache");
 
@@ -176,7 +181,7 @@ export class FreeKioskProvider extends BaseKioskProvider {
       case "stopDaydream":   return this.req(device, "POST", "/api/screensaver/off");
       case "wake":             return this.req(device, "POST", "/api/wake");
 
-      // TTS
+      // TTS (no stop API in FreeKiosk)
       case "textToSpeech": {
         const body: Record<string, string> = { text: params?.text ?? "" };
         if (params?.language) body.language = params.language;
@@ -185,7 +190,8 @@ export class FreeKioskProvider extends BaseKioskProvider {
 
       // Volume
       case "setVolume":
-        return this.req(device, "POST", "/api/volume", { value: Number(params?.level ?? 50) });
+      case "setAudioVolume":
+        return this.req(device, "POST", "/api/volume", { value: Number(params?.level ?? params?.value ?? 50) });
 
       // Brightness
       case "setBrightness":
@@ -200,30 +206,53 @@ export class FreeKioskProvider extends BaseKioskProvider {
         return this.req(device, "POST", "/api/autoBrightness/disable");
 
       // Audio / media
+      case "playSound":
+      case "playVideo":
       case "playFile":
         return this.req(device, "POST", "/api/audio/play", {
           url: params?.url,
           loop: params?.loop === "true",
           ...(params?.volume != null && { volume: Number(params.volume) }),
         });
+      case "stopSound":
+      case "stopVideo":
       case "stopMedia": return this.req(device, "POST", "/api/audio/stop");
       case "beep":      return this.req(device, "POST", "/api/audio/beep");
 
-      // Maintenance
-      case "reboot": return this.req(device, "POST", "/api/reboot");
+      // Kiosk / maintenance
+      case "lockKiosk":
       case "lock":   return this.req(device, "POST", "/api/lock");
+      case "reboot": return this.req(device, "POST", "/api/reboot");
 
       // App launcher
       case "startApplication":
         return this.req(device, "POST", "/api/app/launch", { package: params?.package });
 
-      // JS
+      // JS injection (standard name: injectJavascript)
+      case "injectJavascript":
       case "injectJS":
-        return this.req(device, "POST", "/api/js", { code: params?.code });
+        return this.req(device, "POST", "/api/js", { code: params?.script ?? params?.code });
 
-      // Utility
+      // Overlay / toast (standard name: setOverlayMessage)
+      case "setOverlayMessage":
       case "toast":
-        return this.req(device, "POST", "/api/toast", { text: params?.text });
+        return this.req(device, "POST", "/api/toast", { text: params?.message ?? params?.text });
+
+      // Remote control (D-pad + keyboard)
+      case "remoteUp":       return this.req(device, "POST", "/api/remote/up");
+      case "remoteDown":     return this.req(device, "POST", "/api/remote/down");
+      case "remoteLeft":     return this.req(device, "POST", "/api/remote/left");
+      case "remoteRight":    return this.req(device, "POST", "/api/remote/right");
+      case "remoteSelect":   return this.req(device, "POST", "/api/remote/select");
+      case "remoteBack":     return this.req(device, "POST", "/api/remote/back");
+      case "remoteHome":     return this.req(device, "POST", "/api/remote/home");
+      case "remoteMenu":     return this.req(device, "POST", "/api/remote/menu");
+      case "remotePlayPause":return this.req(device, "POST", "/api/remote/playpause");
+      case "keyboardKey":    return this.req(device, "GET",  `/api/remote/keyboard/${encodeURIComponent(params?.key ?? "enter")}`);
+      case "keyboardCombo":  return this.req(device, "GET",  `/api/remote/keyboard?map=${encodeURIComponent(params?.combo ?? "")}`);
+      case "keyboardText":   return this.req(device, "POST", "/api/remote/text", { text: params?.text });
+
+      // Mode switch
       case "switchMode":
         return this.req(device, "POST", "/api/mode", {
           mode: params?.mode,

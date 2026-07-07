@@ -20,6 +20,15 @@ import {
   MessageSquare,
   Moon,
   Loader2,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CornerDownLeft,
+  Home,
+  Menu,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -89,7 +98,8 @@ export function DeviceControls({ deviceId, capabilities }: DeviceControlsProps) 
     capabilities.hasKioskLock ||
     capabilities.hasScreensaver ||
     capabilities.hasTTS ||
-    capabilities.hasVolume;
+    capabilities.hasVolume ||
+    capabilities.hasRemoteControl;
 
   if (!hasAny) {
     return (
@@ -268,6 +278,34 @@ export function DeviceControls({ deviceId, capabilities }: DeviceControlsProps) 
               )}
               Speak
             </Button>
+          </div>
+        </section>
+      )}
+
+      {/* Remote control */}
+      {capabilities.hasRemoteControl && (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+            Remote Control
+          </h3>
+          {/* D-pad */}
+          <div className="grid grid-cols-3 gap-1 w-36">
+            <div />
+            {cmdButton("remoteUp",     "", <ArrowUp    className="h-4 w-4" />)}
+            <div />
+            {cmdButton("remoteLeft",   "", <ArrowLeft  className="h-4 w-4" />)}
+            {cmdButton("remoteSelect", "", <Check      className="h-4 w-4" />)}
+            {cmdButton("remoteRight",  "", <ArrowRight className="h-4 w-4" />)}
+            <div />
+            {cmdButton("remoteDown",   "", <ArrowDown  className="h-4 w-4" />)}
+            <div />
+          </div>
+          {/* System buttons */}
+          <div className="flex flex-wrap gap-1">
+            {cmdButton("remoteBack",     "Back",  <CornerDownLeft className="h-3.5 w-3.5" />)}
+            {cmdButton("remoteHome",     "Home",  <Home           className="h-3.5 w-3.5" />)}
+            {cmdButton("remoteMenu",     "Menu",  <Menu           className="h-3.5 w-3.5" />)}
+            {cmdButton("remotePlayPause","Play/Pause", <Play      className="h-3.5 w-3.5" />)}
           </div>
         </section>
       )}

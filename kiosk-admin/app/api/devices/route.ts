@@ -6,6 +6,45 @@ import { requireAuth, requireRole, guardErrorResponse } from "@/lib/api-guard";
 import { Provider } from "@/lib/generated/prisma/client";
 import { removeUnknown } from "@/lib/mqtt/discovery";
 
+const PROBE_TIMEOUT_MS = 5_000;
+
+/** Silently probe a device to retrieve its MQTT device ID. Returns null on failure. */
+async function probeForMqttDeviceId(
+  ipAddress: string,
+  port: number,
+  password: string | undefined,
+  provider: Provider,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    let res: Response;
+    if (provider === "FULLY_KIOSK") {
+      const url = new URL(`http://${ipAddress}:${port}/`);
+      url.searchParams.set("cmd", "getDeviceInfo");
+      url.searchParams.set("type", "json");
+      if (password) url.searchParams.set("password", password);
+      res = await fetch(url.toString(), { signal: controller.signal });
+    } else {
+      // FREE_KIOSK
+      const headers: Record<string, string> = {};
+      if (password) headers["X-Api-Key"] = password;
+      res = await fetch(`http://${ipAddress}:${port}/info`, { headers, signal: controller.signal });
+    }
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown>;
+    if (typeof data.status === "string" && data.status !== "OK") return null;
+    return (
+      typeof data.deviceId === "string" ? data.deviceId :
+      typeof data.androidId === "string" ? data.androidId : null
+    );
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const DeviceCreateSchema = z.object({
   name: z.string().min(1).max(100),
   ipAddress: z.string().min(1),
@@ -81,12 +120,22 @@ export async function POST(req: NextRequest) {
   }
 
   const { password, tagIds, ...rest } = parsed.data;
-  // passwordEnc="" is the sentinel for "no password" — Device.passwordEnc is NOT NULL in the DB
   const passwordEnc = password ? encrypt(password) : "";
+
+  // Auto-discover mqttDeviceId if not provided — probe the device silently.
+  let mqttDeviceId = rest.mqttDeviceId ?? null;
+  if (!mqttDeviceId && rest.provider !== "FULLY_CLOUD") {
+    try {
+      mqttDeviceId = await probeForMqttDeviceId(rest.ipAddress, rest.port ?? 2323, password, rest.provider);
+    } catch {
+      // Best-effort — device is still created without mqttDeviceId
+    }
+  }
 
   const device = await db.device.create({
     data: {
       ...rest,
+      mqttDeviceId,
       passwordEnc,
       ...(tagIds && tagIds.length > 0
         ? {

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
-import { encrypt } from "@/lib/crypto";
+import { encrypt, decrypt } from "@/lib/crypto";
 import { connect, disconnect, isConnected } from "@/lib/mqtt/client";
+import { startEmbedded, stopEmbedded, isEmbeddedRunning, embeddedClientCount, getEmbeddedPort } from "@/lib/mqtt/broker";
 import { requireAuth, requireRole, guardErrorResponse } from "@/lib/api-guard";
 import { writeAuditLog } from "@/lib/audit";
 import { z } from "zod";
@@ -10,11 +11,15 @@ export const dynamic = "force-dynamic";
 /** Shape returned to the browser (passwords never included) */
 export interface ConfigResponse {
   mqtt: {
+    mode: "embedded" | "external";
     brokerUrl: string;
     username: string | null;
     topicPrefix: string;
     hasPassword: boolean;
     connected: boolean;
+    embeddedPort: number;
+    embeddedRunning: boolean;
+    embeddedClients: number;
   } | null;
   retentionDays: number;
   smtp: {
@@ -50,11 +55,15 @@ export async function GET(): Promise<Response> {
   const payload: ConfigResponse = {
     mqtt: mqttRow
       ? {
+          mode: (mqttRow.mode as "embedded" | "external") ?? "external",
           brokerUrl: mqttRow.brokerUrl,
           username: mqttRow.username,
           topicPrefix: mqttRow.topicPrefix,
           hasPassword: !!mqttRow.passwordEnc,
           connected: isConnected(),
+          embeddedPort: mqttRow.embeddedPort,
+          embeddedRunning: isEmbeddedRunning(),
+          embeddedClients: embeddedClientCount(),
         }
       : null,
     retentionDays: appConfig?.retentionDays ?? 7,
@@ -71,10 +80,12 @@ export async function GET(): Promise<Response> {
 }
 
 const mqttSchema = z.object({
+  mode: z.enum(["embedded", "external"]).optional(),
   brokerUrl: z.string().url().optional().or(z.literal("")),
   username: z.string().optional(),
   password: z.string().optional(),
   topicPrefix: z.string().min(1).optional(),
+  embeddedPort: z.number().int().min(1).max(65535).optional(),
 });
 
 const smtpSchema = z.object({
@@ -143,37 +154,83 @@ export async function PUT(req: Request): Promise<Response> {
   }
 
   if (mqtt !== undefined) {
-    if (!mqtt.brokerUrl) {
-      // Clear MQTT config and disconnect
+    const mode = mqtt.mode ?? "external";
+
+    if (mode === "embedded") {
+      const port = mqtt.embeddedPort ?? 1883;
+      const existing = await db.mqttConfig.findFirst();
+      let passwordEnc: string | null = null;
+      if (mqtt.password) passwordEnc = encrypt(mqtt.password);
+      else if (existing) passwordEnc = existing.passwordEnc ?? null;
+
+      const auth =
+        mqtt.username && passwordEnc
+          ? { username: mqtt.username, password: decrypt(passwordEnc) }
+          : undefined;
+
+      try {
+        await startEmbedded(port, auth);
+        // Give Aedes a tick to finish initialising before the client connects
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: `Embedded broker failed to start: ${message}` }, { status: 502 });
+      }
+
+      const data = {
+        mode: "embedded",
+        brokerUrl: `mqtt://localhost:${port}`,
+        embeddedPort: port,
+        username: mqtt.username ?? null,
+        passwordEnc,
+        topicPrefix: mqtt.topicPrefix ?? existing?.topicPrefix ?? "fully",
+      };
+      const config = existing
+        ? await db.mqttConfig.update({ where: { id: existing.id }, data })
+        : await db.mqttConfig.create({ data });
+
+      try {
+        await connect({ ...config, brokerUrl: `mqtt://localhost:${port}` });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: `MQTT client connection failed: ${message}` }, { status: 502 });
+      }
+      void writeAuditLog({ userId: session.user!.id!, action: "updateMqtt", payload: { mode: "embedded", port } });
+
+    } else if (!mqtt.brokerUrl) {
+      // Clear MQTT config and stop everything
+      await stopEmbedded();
       await db.mqttConfig.deleteMany();
       disconnect();
       void writeAuditLog({ userId: session.user!.id!, action: "updateMqtt", payload: { brokerUrl: null } });
+
     } else {
-      // Upsert config
+      // External broker
+      await stopEmbedded();
       const existing = await db.mqttConfig.findFirst();
 
       let passwordEnc: string | null | undefined;
       if (mqtt.password) {
         passwordEnc = encrypt(mqtt.password);
       } else if (existing) {
-        // Keep existing password if not provided
         passwordEnc = existing.passwordEnc;
       } else {
         passwordEnc = null;
       }
 
       const data = {
+        mode: "external",
         brokerUrl: mqtt.brokerUrl,
         username: mqtt.username ?? null,
         passwordEnc,
         topicPrefix: mqtt.topicPrefix ?? "fully",
+        embeddedPort: existing?.embeddedPort ?? 1883,
       };
 
       const config = existing
         ? await db.mqttConfig.update({ where: { id: existing.id }, data })
         : await db.mqttConfig.create({ data });
 
-      // Attempt to connect with new config
       try {
         await connect(config);
         void writeAuditLog({ userId: session.user!.id!, action: "updateMqtt", payload: { brokerUrl: mqtt.brokerUrl } });

@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import type { DeviceWithRelations, DeviceInfo } from "@/lib/types";
 import { Battery, Monitor, Wifi, WifiOff, Settings } from "lucide-react";
@@ -49,8 +50,19 @@ export function DeviceCard({ device, info, loading, selected, onToggleSelect }: 
         </p>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
+        {/* Loading skeleton */}
+        {loading && (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-3">
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+            <Skeleton className="h-3 w-32" />
+          </div>
+        )}
+
         {/* Device info row */}
-        {online && info && (
+        {!loading && online && info && (
           <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
             {info.batteryLevel !== undefined && (
               <span className="flex items-center gap-1">
@@ -69,7 +81,7 @@ export function DeviceCard({ device, info, loading, selected, onToggleSelect }: 
         )}
 
         {/* URL */}
-        {online && info?.currentUrl && (
+        {!loading && online && info?.currentUrl && (
           <p className="text-muted-foreground truncate text-xs" title={info.currentUrl}>
             {info.currentUrl}
           </p>

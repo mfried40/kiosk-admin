@@ -58,8 +58,10 @@ export interface ProviderCapabilities {
   hasFileTransfer: boolean;
   /** Install and uninstall APKs */
   hasApkManagement: boolean;
-  /** Route commands through MQTT broker instead of direct HTTP (device must subscribe to cmd topic) */
+  /** Route commands through MQTT broker instead of device subscribing to cmd topic */
   hasMqttCommands: boolean;
+  /** D-pad and keyboard remote control (remoteUp/Down/Left/Right/Select/Back/Home) */
+  hasRemoteControl: boolean;
 }
 
 import type { DeviceInfo } from "@/lib/types";

@@ -48,6 +48,7 @@ export class FullyCloudProvider extends BaseKioskProvider {
     hasFileTransfer: true,
     hasApkManagement: true,
     hasMqttCommands: false,
+    hasRemoteControl: false,
   };
 
   // ── Credential helpers ──────────────────────────────────────────────────────

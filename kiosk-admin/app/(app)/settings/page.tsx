@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import type { ConfigResponse } from "@/app/api/config/route";
-import { Wifi, WifiOff, Loader2, Trash2, Plus } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Trash2, Plus, Server } from "lucide-react";
 import type { AlertType } from "@/lib/generated/prisma/client";
 
 interface AlertRule {
@@ -25,13 +25,18 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   // MQTT form state
+  const [mqttMode, setMqttMode] = useState<"embedded" | "external">("external");
   const [brokerUrl, setBrokerUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [topicPrefix, setTopicPrefix] = useState("fully");
   const [connected, setConnected] = useState(false);
   const [hasPassword, setHasPassword] = useState(false);
+  const [embeddedPort, setEmbeddedPort] = useState(1883);
+  const [embeddedRunning, setEmbeddedRunning] = useState(false);
+  const [embeddedClients, setEmbeddedClients] = useState(0);
   const [retentionDays, setRetentionDays] = useState(7);
+  const statusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // SMTP form state
   const [smtpHost, setSmtpHost] = useState("");
@@ -57,11 +62,15 @@ export default function SettingsPage() {
         if (!res.ok) return;
         const data = (await res.json()) as ConfigResponse;
         if (data.mqtt) {
+          setMqttMode((data.mqtt.mode as "embedded" | "external") ?? "external");
           setBrokerUrl(data.mqtt.brokerUrl);
           setUsername(data.mqtt.username ?? "");
           setTopicPrefix(data.mqtt.topicPrefix);
           setConnected(data.mqtt.connected);
           setHasPassword(data.mqtt.hasPassword);
+          setEmbeddedPort(data.mqtt.embeddedPort ?? 1883);
+          setEmbeddedRunning(data.mqtt.embeddedRunning ?? false);
+          setEmbeddedClients(data.mqtt.embeddedClients ?? 0);
         }
         setRetentionDays(data.retentionDays);
         if (data.smtp) {
@@ -80,46 +89,49 @@ export default function SettingsPage() {
     void fetch("/api/alerts").then(async (res) => {
       if (res.ok) setAlertRules((await res.json()) as AlertRule[]);
     });
+    // Poll broker status every 5 s when embedded is active
+    statusPollRef.current = setInterval(async () => {
+      const r = await fetch("/api/config/broker-status").catch(() => null);
+      if (r?.ok) {
+        const s = (await r.json()) as { mode: string; running: boolean; port: number | null; clientCount: number };
+        if (s.mode === "embedded") {
+          setEmbeddedRunning(s.running);
+          setEmbeddedClients(s.clientCount);
+        }
+      }
+    }, 5_000);
+    return () => {
+      if (statusPollRef.current) clearInterval(statusPollRef.current);
+    };
   }, []);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      const body: {
-        mqtt: {
-          brokerUrl: string;
-          username?: string;
-          password?: string;
-          topicPrefix: string;
-        };
-        retentionDays: number;
-      } = {
-        mqtt: {
-          brokerUrl,
-          topicPrefix,
-        },
-        retentionDays,
-      };
-      if (username) body.mqtt.username = username;
-      if (password) body.mqtt.password = password;
+      const mqttPayload: Record<string, unknown> = { mode: mqttMode, topicPrefix };
+      if (mqttMode === "embedded") {
+        mqttPayload.embeddedPort = embeddedPort;
+        if (username) mqttPayload.username = username;
+        if (password) mqttPayload.password = password;
+      } else {
+        mqttPayload.brokerUrl = brokerUrl;
+        if (username) mqttPayload.username = username;
+        if (password) mqttPayload.password = password;
+      }
 
       const res = await fetch("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ mqtt: mqttPayload, retentionDays }),
       });
 
       if (res.ok) {
-        toast.success(brokerUrl ? "MQTT settings saved and connected" : "MQTT disconnected");
+        toast.success(mqttMode === "embedded" ? "Embedded broker started and connected" : brokerUrl ? "MQTT settings saved and connected" : "MQTT disconnected");
         setPassword("");
-        if (brokerUrl) {
-          setConnected(true);
-          setHasPassword(!!password || hasPassword);
-        } else {
-          setConnected(false);
-          setHasPassword(false);
-        }
+        setConnected(true);
+        if (mqttMode === "embedded") { setEmbeddedRunning(true); }
+        if (password) setHasPassword(true);
       } else {
         const data = (await res.json()) as { error?: string };
         toast.error(data.error ?? "Failed to save settings");
@@ -296,16 +308,70 @@ export default function SettingsPage() {
         </div>
 
         <form onSubmit={(e) => void handleSave(e)} className="flex flex-col gap-4">
+
+          {/* Mode toggle */}
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="brokerUrl">Broker URL</Label>
-            <Input
-              id="brokerUrl"
-              type="url"
-              placeholder="mqtt://192.168.1.10:1883"
-              value={brokerUrl}
-              onChange={(e) => setBrokerUrl(e.target.value)}
-            />
+            <Label>Mode</Label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMqttMode("external")}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${mqttMode === "external" ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent"}`}
+              >
+                External Broker
+              </button>
+              <button
+                type="button"
+                onClick={() => setMqttMode("embedded")}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${mqttMode === "embedded" ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent"}`}
+              >
+                <Server className="inline-block mr-1 h-3.5 w-3.5" />
+                Embedded Broker
+              </button>
+            </div>
           </div>
+
+          {/* Embedded mode fields */}
+          {mqttMode === "embedded" && (
+            <>
+              {embeddedRunning && (
+                <div className="flex items-center gap-2 rounded-md bg-green-500/10 border border-green-500/30 px-3 py-2 text-sm">
+                  <Server className="h-4 w-4 text-green-500 shrink-0" />
+                  <span className="text-green-700 dark:text-green-400 font-medium">
+                    Running on port {embeddedPort} — {embeddedClients} client{embeddedClients !== 1 ? "s" : ""} connected
+                  </span>
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="embeddedPort">Port</Label>
+                <Input
+                  id="embeddedPort"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={embeddedPort}
+                  onChange={(e) => setEmbeddedPort(parseInt(e.target.value, 10))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Devices connect to <code>{`mqtt://{server-ip}:${embeddedPort}`}</code>
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* External mode fields */}
+          {mqttMode === "external" && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="brokerUrl">Broker URL</Label>
+              <Input
+                id="brokerUrl"
+                type="url"
+                placeholder="mqtt://192.168.1.10:1883"
+                value={brokerUrl}
+                onChange={(e) => setBrokerUrl(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="topicPrefix">Topic Prefix</Label>
@@ -321,7 +387,9 @@ export default function SettingsPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mqttUsername">Username (optional)</Label>
+            <Label htmlFor="mqttUsername">
+              {mqttMode === "embedded" ? "Require Username (optional)" : "Username (optional)"}
+            </Label>
             <Input
               id="mqttUsername"
               autoComplete="off"
@@ -332,7 +400,7 @@ export default function SettingsPage() {
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="mqttPassword">
-              Password (optional{hasPassword ? " — leave blank to keep existing" : ""})
+              {mqttMode === "embedded" ? "Require Password (optional)" : `Password (optional${hasPassword ? " — leave blank to keep existing" : ""})`}
             </Label>
             <Input
               id="mqttPassword"

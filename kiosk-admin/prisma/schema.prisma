@@ -86,11 +86,13 @@ model DeviceStatusHistory {
 
 // MQTT
 model MqttConfig {
-  id          String  @id @default(uuid())
-  brokerUrl   String
-  username    String?
-  passwordEnc String?
-  topicPrefix String  @default("fully")
+  id            String  @id @default(uuid())
+  brokerUrl     String
+  username      String?
+  passwordEnc   String?
+  topicPrefix   String  @default("fully")
+  mode          String  @default("external")  // "embedded" | "external"
+  embeddedPort  Int     @default(1883)
 }
 
 // Config templates

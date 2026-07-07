@@ -8,6 +8,7 @@ import { db } from "../db";
 import { broadcast } from "./sse";
 import { evaluateAlerts } from "../alerts";
 import { recordUnknown } from "./discovery";
+import { cacheBaseTopic } from "./freekiosk-commands";
 
 const HISTORY_LIMIT = 100; // keep last N records per device
 
@@ -167,7 +168,64 @@ export function handleEvent(
   void updateDeviceStatus(mqttDeviceId, fields, undefined, undefined);
 }
 
+/**
+ * Handle FreeKiosk state messages.
+ * Topic: {prefix}/{mqttDeviceId}/state
+ * Payload: { battery: { level, charging }, screen: { on }, webview: { currentUrl }, device: { ip, model, ... } }
+ */
+export function handleFreeKioskState(
+  baseTopic: string,
+  mqttDeviceId: string,
+  payload: Buffer,
+): void {
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(payload.toString()) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  // Cache the baseTopic so commands can be routed back to this device
+  cacheBaseTopic(mqttDeviceId, baseTopic);
+
+  const battery = data.battery as Record<string, unknown> | undefined;
+  const screen = data.screen as Record<string, unknown> | undefined;
+  const webview = data.webview as Record<string, unknown> | undefined;
+  const device = data.device as Record<string, unknown> | undefined;
+
+  const fields: Partial<StatusUpdate> = { online: true };
+  if (typeof battery?.level === "number") fields.batteryLevel = battery.level;
+  if (typeof screen?.on === "boolean") fields.screenOn = screen.on;
+  if (typeof webview?.currentUrl === "string") fields.currentUrl = webview.currentUrl;
+  if (battery?.charging !== undefined) fields.pluggedIn = Boolean(battery.charging);
+
+  const payloadIp =
+    typeof device?.ip === "string" ? device.ip :
+    typeof (data.wifi as Record<string, unknown> | undefined)?.ipAddress === "string"
+      ? String((data.wifi as Record<string, unknown>).ipAddress)
+      : undefined;
+  const payloadModel = typeof device?.model === "string" ? device.model : undefined;
+  const payloadDeviceName = typeof device?.deviceName === "string" ? device.deviceName : undefined;
+
+  void updateDeviceStatus(mqttDeviceId, fields, undefined, payloadIp, payloadDeviceName, payloadModel);
+}
+
+/**
+ * Handle FreeKiosk availability messages.
+ * Topic: {prefix}/{mqttDeviceId}/availability
+ * Payload: "online" | "offline"
+ */
+export function handleFreeKioskAvailability(
+  mqttDeviceId: string,
+  payload: Buffer,
+): void {
+  const status = payload.toString().trim().toLowerCase();
+  if (status !== "online" && status !== "offline") return;
+  void updateDeviceStatus(mqttDeviceId, { online: status === "online" });
+}
+
 export function registerHandlers(mqttClient: MqttClient, prefix: string): void {
+  // Fully Kiosk topics
   mqttClient.subscribe(`${prefix}/deviceInfo/+`, (err) => {
     if (err) console.error(`[MQTT] Subscribe error for ${prefix}/deviceInfo/+:`, err);
     else console.log(`[MQTT] Subscribed to ${prefix}/deviceInfo/+`);
@@ -176,18 +234,32 @@ export function registerHandlers(mqttClient: MqttClient, prefix: string): void {
     if (err) console.error(`[MQTT] Subscribe error for ${prefix}/event/+/+:`, err);
     else console.log(`[MQTT] Subscribed to ${prefix}/event/+/+`);
   });
+  // FreeKiosk topics: {any-prefix}/{deviceId}/state and /availability
+  mqttClient.subscribe("+/+/state", (err) => {
+    if (err) console.error("[MQTT] Subscribe error for +/+/state:", err);
+    else console.log("[MQTT] Subscribed to +/+/state (FreeKiosk)");
+  });
+  mqttClient.subscribe("+/+/availability", (err) => {
+    if (err) console.error("[MQTT] Subscribe error for +/+/availability:", err);
+    else console.log("[MQTT] Subscribed to +/+/availability (FreeKiosk)");
+  });
 
   mqttClient.on("message", (topic: string, payload: Buffer) => {
     console.log(`[MQTT] ← ${topic} (${payload.length}b)`);
     const segments = topic.split("/");
 
     if (segments.length === 3 && segments[1] === "deviceInfo") {
-      const mqttDeviceId = segments[2];
-      handleDeviceInfo(mqttDeviceId, payload);
+      // Fully Kiosk: {prefix}/deviceInfo/{deviceId}
+      handleDeviceInfo(segments[2], payload);
     } else if (segments.length === 4 && segments[1] === "event") {
-      const eventName = segments[2];
-      const mqttDeviceId = segments[3];
-      handleEvent(eventName, mqttDeviceId, payload);
+      // Fully Kiosk: {prefix}/event/{eventName}/{deviceId}
+      handleEvent(segments[2], segments[3], payload);
+    } else if (segments.length === 3 && segments[2] === "state") {
+      // FreeKiosk: {baseTopic}/{deviceId}/state
+      handleFreeKioskState(segments[0], segments[1], payload);
+    } else if (segments.length === 3 && segments[2] === "availability") {
+      // FreeKiosk: {baseTopic}/{deviceId}/availability
+      handleFreeKioskAvailability(segments[1], payload);
     } else {
       console.log(`[MQTT] ← unmatched topic pattern: ${topic}`);
     }

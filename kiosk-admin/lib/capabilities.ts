@@ -27,6 +27,7 @@ const FULLY_KIOSK_CAPS: ProviderCapabilities = {
   hasFileTransfer: true,
   hasApkManagement: true,
   hasMqttCommands: false, // Fully Kiosk MQTT is publish-only
+  hasRemoteControl: false,
 };
 
 const FREE_KIOSK_CAPS: ProviderCapabilities = {
@@ -34,7 +35,7 @@ const FREE_KIOSK_CAPS: ProviderCapabilities = {
   hasScreenControl:  true,
   hasUrlControl:     true,
   hasAppRestart:     true,
-  hasKioskLock:      false,
+  hasKioskLock:      true,  // /api/lock (requires Device Owner or AccessibilityService)
   hasScreensaver:    true,
   hasTTS:            true,
   hasVolume:         true,
@@ -50,7 +51,8 @@ const FREE_KIOSK_CAPS: ProviderCapabilities = {
   hasTabManagement:  false,
   hasFileTransfer:   false,
   hasApkManagement:  false,
-  hasMqttCommands:   false,
+  hasMqttCommands:   true,  // FreeKiosk supports commands via {baseTopic}/{id}/set/{entity}
+  hasRemoteControl:  true,  // D-pad + keyboard via /api/remote/*
 };
 
 const FULLY_CLOUD_CAPS: ProviderCapabilities = {
@@ -75,6 +77,7 @@ const FULLY_CLOUD_CAPS: ProviderCapabilities = {
   hasFileTransfer:   true,
   hasApkManagement:  true,
   hasMqttCommands:   false,
+  hasRemoteControl:  false,
 };
 
 const CAPS_MAP: Record<string, ProviderCapabilities> = {
