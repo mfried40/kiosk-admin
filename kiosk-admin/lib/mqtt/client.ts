@@ -153,7 +153,7 @@ export async function autoConnect(): Promise<void> {
         config.username && config.passwordEnc
           ? { username: config.username, password: decrypt(config.passwordEnc) }
           : undefined;
-      await startEmbedded(config.embeddedPort, auth);
+      await startEmbedded(config.embeddedPort, auth, config.embeddedWsPort ?? undefined);
       await new Promise((resolve) => setTimeout(resolve, 200));
       console.log("[MQTT] Auto-connecting client to embedded broker…");
       await connect({ ...config, brokerUrl: `mqtt://localhost:${config.embeddedPort}` });

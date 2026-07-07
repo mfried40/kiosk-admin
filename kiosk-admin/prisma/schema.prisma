@@ -93,6 +93,7 @@ model MqttConfig {
   topicPrefix   String  @default("fully")
   mode          String  @default("external")  // "embedded" | "external"
   embeddedPort  Int     @default(1883)
+  embeddedWsPort Int?   // optional WebSocket port (e.g. 9883)
 }
 
 // Config templates

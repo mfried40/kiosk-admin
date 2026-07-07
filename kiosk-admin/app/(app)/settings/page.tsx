@@ -33,6 +33,7 @@ export default function SettingsPage() {
   const [connected, setConnected] = useState(false);
   const [hasPassword, setHasPassword] = useState(false);
   const [embeddedPort, setEmbeddedPort] = useState(1883);
+  const [embeddedWsPort, setEmbeddedWsPort] = useState<number | null>(null);
   const [embeddedRunning, setEmbeddedRunning] = useState(false);
   const [embeddedClients, setEmbeddedClients] = useState(0);
   const [retentionDays, setRetentionDays] = useState(7);
@@ -69,6 +70,7 @@ export default function SettingsPage() {
           setConnected(data.mqtt.connected);
           setHasPassword(data.mqtt.hasPassword);
           setEmbeddedPort(data.mqtt.embeddedPort ?? 1883);
+          setEmbeddedWsPort(data.mqtt.embeddedWsPort ?? null);
           setEmbeddedRunning(data.mqtt.embeddedRunning ?? false);
           setEmbeddedClients(data.mqtt.embeddedClients ?? 0);
         }
@@ -112,6 +114,7 @@ export default function SettingsPage() {
       const mqttPayload: Record<string, unknown> = { mode: mqttMode, topicPrefix };
       if (mqttMode === "embedded") {
         mqttPayload.embeddedPort = embeddedPort;
+        mqttPayload.embeddedWsPort = embeddedWsPort;
         if (username) mqttPayload.username = username;
         if (password) mqttPayload.password = password;
       } else {
@@ -343,7 +346,7 @@ export default function SettingsPage() {
                 </div>
               )}
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="embeddedPort">Port</Label>
+                <Label htmlFor="embeddedPort">TCP Port</Label>
                 <Input
                   id="embeddedPort"
                   type="number"
@@ -355,6 +358,23 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Devices connect to <code>{`mqtt://{server-ip}:${embeddedPort}`}</code>
                 </p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="embeddedWsPort">WebSocket Port (optional)</Label>
+                <Input
+                  id="embeddedWsPort"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  placeholder="e.g. 9883 — leave blank to disable"
+                  value={embeddedWsPort ?? ""}
+                  onChange={(e) => setEmbeddedWsPort(e.target.value ? parseInt(e.target.value, 10) : null)}
+                />
+                {embeddedWsPort && (
+                  <p className="text-xs text-muted-foreground">
+                    Devices connect to <code>{`ws://{server-ip}:${embeddedWsPort}`}</code>
+                  </p>
+                )}
               </div>
             </>
           )}

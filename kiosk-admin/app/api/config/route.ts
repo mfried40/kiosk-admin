@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { connect, disconnect, isConnected } from "@/lib/mqtt/client";
-import { startEmbedded, stopEmbedded, isEmbeddedRunning, embeddedClientCount, getEmbeddedPort } from "@/lib/mqtt/broker";
+import { startEmbedded, stopEmbedded, isEmbeddedRunning, embeddedClientCount, getEmbeddedPort, getEmbeddedWsPort } from "@/lib/mqtt/broker";
 import { requireAuth, requireRole, guardErrorResponse } from "@/lib/api-guard";
 import { writeAuditLog } from "@/lib/audit";
 import { z } from "zod";
@@ -18,6 +18,7 @@ export interface ConfigResponse {
     hasPassword: boolean;
     connected: boolean;
     embeddedPort: number;
+    embeddedWsPort: number | null;
     embeddedRunning: boolean;
     embeddedClients: number;
   } | null;
@@ -62,6 +63,7 @@ export async function GET(): Promise<Response> {
           hasPassword: !!mqttRow.passwordEnc,
           connected: isConnected(),
           embeddedPort: mqttRow.embeddedPort,
+          embeddedWsPort: mqttRow.embeddedWsPort ?? null,
           embeddedRunning: isEmbeddedRunning(),
           embeddedClients: embeddedClientCount(),
         }
@@ -86,6 +88,7 @@ const mqttSchema = z.object({
   password: z.string().optional(),
   topicPrefix: z.string().min(1).optional(),
   embeddedPort: z.number().int().min(1).max(65535).optional(),
+  embeddedWsPort: z.number().int().min(1).max(65535).nullable().optional(),
 });
 
 const smtpSchema = z.object({
@@ -157,7 +160,8 @@ export async function PUT(req: Request): Promise<Response> {
     const mode = mqtt.mode ?? "external";
 
     if (mode === "embedded") {
-      const port = mqtt.embeddedPort ?? 1883;
+      const port   = mqtt.embeddedPort   ?? 1883;
+      const wsPort = mqtt.embeddedWsPort ?? null;
       const existing = await db.mqttConfig.findFirst();
       let passwordEnc: string | null = null;
       if (mqtt.password) passwordEnc = encrypt(mqtt.password);
@@ -169,7 +173,7 @@ export async function PUT(req: Request): Promise<Response> {
           : undefined;
 
       try {
-        await startEmbedded(port, auth);
+        await startEmbedded(port, auth, wsPort ?? undefined);
         // Give Aedes a tick to finish initialising before the client connects
         await new Promise((resolve) => setTimeout(resolve, 200));
       } catch (err) {
@@ -181,6 +185,7 @@ export async function PUT(req: Request): Promise<Response> {
         mode: "embedded",
         brokerUrl: `mqtt://localhost:${port}`,
         embeddedPort: port,
+        embeddedWsPort: wsPort,
         username: mqtt.username ?? null,
         passwordEnc,
         topicPrefix: mqtt.topicPrefix ?? existing?.topicPrefix ?? "fully",
