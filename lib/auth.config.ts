@@ -14,7 +14,8 @@ export const authConfig: NextAuthConfig = {
       const isSetup = nextUrl.pathname.startsWith("/setup");
       const isPublic =
         nextUrl.pathname.startsWith("/login") ||
-        nextUrl.pathname.startsWith("/api/auth");
+        nextUrl.pathname.startsWith("/api/auth") ||
+        nextUrl.pathname === "/mqtt"; // MQTT WebSocket — broker handles its own auth
 
       if (isPublic || isSetup) return true;
       return isLoggedIn;

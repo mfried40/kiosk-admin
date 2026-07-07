@@ -8,6 +8,7 @@
 
 import { createServer, type Server } from "net";
 import { WebSocketServer, type WebSocket } from "ws";
+import websocketStream from "websocket-stream";
 import { Aedes, type AedesOptions, type AuthErrorCode } from "aedes";
 import type { Client } from "aedes";
 
@@ -107,8 +108,11 @@ export async function startEmbedded(
   let wsServer: WebSocketServer | null = null;
   if (wsPort) {
     wsServer = new WebSocketServer({ port: wsPort });
-    wsServer.on("connection", (ws: WebSocket) => {
-      broker.handle(ws as unknown as Parameters<typeof broker.handle>[0]);
+    wsServer.on("connection", (ws: WebSocket, req) => {
+      // Wrap the WebSocket in a Duplex stream — Aedes requires a stream, not a raw WS
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stream = websocketStream(ws as any);
+      broker.handle(stream, req);
     });
     await new Promise<void>((resolve, reject) => {
       wsServer!.once("error", (err) => {

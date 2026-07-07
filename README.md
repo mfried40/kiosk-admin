@@ -69,6 +69,9 @@ ENCRYPTION_SECRET=<64 hex chars>     # device passwords encrypted at rest
 DATABASE_PROVIDER=sqlite             # sqlite | postgresql | mongodb
 DATABASE_URL=file:./prisma/dev.db
 
+# MQTT WebSocket internal port — proxied by Next.js at /mqtt (no extra firewall rule)
+MQTT_WS_PORT=9883
+
 # Optional — can also be configured from the Settings page
 SMTP_HOST=
 SMTP_PORT=587
@@ -146,11 +149,11 @@ Kiosk Admin supports three MQTT modes:
 
 | Mode | How |
 |---|---|
-| **Embedded broker** | Toggle "Embedded Broker" in Settings → MQTT. Devices connect to `mqtt://{server-ip}:1883`. No external service needed. |
-| **External broker** | Enter a broker URL in Settings → MQTT (e.g. `mqtt://192.168.1.10:1883` or `mqtts://...hivemq.cloud:8883`). |
+| **Embedded broker** | Toggle "Embedded Broker" in Settings → MQTT. Devices connect via TCP (`mqtt://server:1883`) or WebSocket (`ws://server:3000/mqtt`). No external service needed. |
+| **External broker** | Enter a broker URL in Settings → MQTT. Supports `mqtt://`, `mqtts://`, `ws://`, `wss://`. |
 | **No MQTT** | Leave Settings → MQTT empty. Device status is polled every 30 seconds. |
 
-When a device has an **MQTT Device ID** configured, Kiosk Admin automatically discovers the ID by probing the device when it is first added.
+The MQTT WebSocket path (`/mqtt`) is proxied by Next.js — no extra firewall port needed beyond the app's own port (3000). Behind a TLS reverse proxy it becomes `wss://your-domain/mqtt`.
 
 ---
 

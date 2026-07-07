@@ -161,7 +161,7 @@ export async function PUT(req: Request): Promise<Response> {
 
     if (mode === "embedded") {
       const port   = mqtt.embeddedPort   ?? 1883;
-      const wsPort = mqtt.embeddedWsPort ?? null;
+      const wsPort = mqtt.embeddedWsPort ?? parseInt(process.env.MQTT_WS_PORT ?? "9883", 10);
       const existing = await db.mqttConfig.findFirst();
       let passwordEnc: string | null = null;
       if (mqtt.password) passwordEnc = encrypt(mqtt.password);
