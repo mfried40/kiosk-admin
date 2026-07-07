@@ -46,4 +46,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# custom server build output
+/server.js
+
 /lib/generated/prisma

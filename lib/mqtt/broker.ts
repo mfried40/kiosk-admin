@@ -30,6 +30,10 @@ export function isEmbeddedRunning(): boolean {
   return g._aedesTcpServer?.listening ?? false;
 }
 
+export function getEmbeddedBroker(): Aedes | null {
+  return g._aedesBroker ?? null;
+}
+
 export function embeddedClientCount(): number {
   return g._aedesBroker?.connectedClients ?? 0;
 }
