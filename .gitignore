@@ -24,6 +24,12 @@
 .DS_Store
 *.pem
 
+# SQLite databases — contain user/device data, never commit
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
 # debug
 npm-debug.log*
 yarn-debug.log*
