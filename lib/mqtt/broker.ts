@@ -18,14 +18,18 @@ const g = globalThis as unknown as {
   _aedesBroker?: Aedes | null;
   _aedesTcpServer?: Server | null;
   _aedesPort?: number | null;
-  _aedesWsServer?: WebSocketServer | null;
+  _aedesWsServer?: WebSocketServer | null;   // env-port WS (used by Next.js /mqtt proxy)
   _aedesWsPort?: number | null;
+  _aedesWs2Server?: WebSocketServer | null;  // settings-port WS (optional second listener)
+  _aedesWs2Port?: number | null;
 };
-if (g._aedesBroker    === undefined) g._aedesBroker    = null;
-if (g._aedesTcpServer === undefined) g._aedesTcpServer = null;
-if (g._aedesPort      === undefined) g._aedesPort      = null;
-if (g._aedesWsServer  === undefined) g._aedesWsServer  = null;
-if (g._aedesWsPort    === undefined) g._aedesWsPort    = null;
+if (g._aedesBroker     === undefined) g._aedesBroker     = null;
+if (g._aedesTcpServer  === undefined) g._aedesTcpServer  = null;
+if (g._aedesPort       === undefined) g._aedesPort       = null;
+if (g._aedesWsServer   === undefined) g._aedesWsServer   = null;
+if (g._aedesWsPort     === undefined) g._aedesWsPort     = null;
+if (g._aedesWs2Server  === undefined) g._aedesWs2Server  = null;
+if (g._aedesWs2Port    === undefined) g._aedesWs2Port    = null;
 
 export function isEmbeddedRunning(): boolean {
   return g._aedesTcpServer?.listening ?? false;
@@ -99,7 +103,6 @@ export async function startEmbedded(
       reject(err);
     });
     tcpServer.listen(port, () => {
-      // Register in globalThis immediately so stopEmbedded can clean up even if WS fails
       g._aedesBroker    = broker;
       g._aedesTcpServer = tcpServer;
       g._aedesPort      = port;
@@ -108,42 +111,53 @@ export async function startEmbedded(
     });
   });
 
-  // WebSocket server (optional) — failure is non-fatal; TCP-only mode still works
-  let wsServer: WebSocketServer | null = null;
-  if (wsPort) {
-    wsServer = new WebSocketServer({ port: wsPort });
-    wsServer.on("connection", (ws: WebSocket, req) => {
-      // Wrap the WebSocket in a Duplex stream — Aedes requires a stream, not a raw WS
+  // Helper: start a WS server on a given port (non-fatal on failure)
+  const startWs = async (wsPort: number): Promise<WebSocketServer | null> => {
+    const wss = new WebSocketServer({ port: wsPort });
+    wss.on("connection", (ws: WebSocket, req) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stream = websocketStream(ws as any);
       broker.handle(stream, req);
     });
-    await new Promise<void>((resolve) => {
-      wsServer!.once("error", (err) => {
-        console.warn("[MQTT Broker] WS could not start (TCP-only mode):", (err as NodeJS.ErrnoException).message);
-        wsServer!.close();
-        wsServer = null;
-        resolve(); // non-fatal — continue without WS
+    return new Promise<WebSocketServer | null>((resolve) => {
+      wss.once("error", (err) => {
+        console.warn(`[MQTT Broker] WS on port ${wsPort} could not start:`, (err as NodeJS.ErrnoException).message);
+        wss.close();
+        resolve(null);
       });
-      wsServer!.once("listening", () => {
+      wss.once("listening", () => {
         console.log(`[MQTT Broker] WebSocket listening on port ${wsPort}`);
-        resolve();
+        resolve(wss);
       });
     });
-  }
+  };
 
-  g._aedesWsServer  = wsServer;
-  g._aedesWsPort    = wsServer ? wsPort ?? null : null;
+  // Primary WS: env-configured port (used by Next.js /mqtt rewrite — always attempted)
+  const envWsPort = parseInt(process.env.MQTT_WS_PORT ?? "19883", 10);
+  const wsServer = await startWs(envWsPort);
+  g._aedesWsServer = wsServer;
+  g._aedesWsPort   = wsServer ? envWsPort : null;
+
+  // Secondary WS: settings-configured port (only if different from env port)
+  if (wsPort && wsPort !== envWsPort) {
+    const ws2Server = await startWs(wsPort);
+    g._aedesWs2Server = ws2Server;
+    g._aedesWs2Port   = ws2Server ? wsPort : null;
+  } else {
+    g._aedesWs2Server = null;
+    g._aedesWs2Port   = null;
+  }
 }
 
 export async function stopEmbedded(): Promise<void> {
-  const broker   = g._aedesBroker;
+  const broker    = g._aedesBroker;
   const tcpServer = g._aedesTcpServer;
   const wsServer  = g._aedesWsServer;
+  const ws2Server = g._aedesWs2Server;
   if (!tcpServer) return;
 
   await new Promise<void>((resolve) => {
-    let pending = 1 + (wsServer ? 1 : 0);
+    let pending = 1 + (wsServer ? 1 : 0) + (ws2Server ? 1 : 0);
     const done = () => { if (--pending === 0) resolve(); };
 
     broker?.close(() => {
@@ -160,6 +174,14 @@ export async function stopEmbedded(): Promise<void> {
       wsServer.close(() => {
         g._aedesWsServer = null;
         g._aedesWsPort   = null;
+        done();
+      });
+    }
+
+    if (ws2Server) {
+      ws2Server.close(() => {
+        g._aedesWs2Server = null;
+        g._aedesWs2Port   = null;
         done();
       });
     }
