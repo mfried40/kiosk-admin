@@ -99,12 +99,16 @@ export async function startEmbedded(
       reject(err);
     });
     tcpServer.listen(port, () => {
+      // Register in globalThis immediately so stopEmbedded can clean up even if WS fails
+      g._aedesBroker    = broker;
+      g._aedesTcpServer = tcpServer;
+      g._aedesPort      = port;
       console.log(`[MQTT Broker] TCP listening on port ${port}`);
       resolve();
     });
   });
 
-  // WebSocket server (optional)
+  // WebSocket server (optional) — failure is non-fatal; TCP-only mode still works
   let wsServer: WebSocketServer | null = null;
   if (wsPort) {
     wsServer = new WebSocketServer({ port: wsPort });
@@ -114,10 +118,12 @@ export async function startEmbedded(
       const stream = websocketStream(ws as any);
       broker.handle(stream, req);
     });
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       wsServer!.once("error", (err) => {
-        console.error("[MQTT Broker] WS failed to start:", (err as NodeJS.ErrnoException).message);
-        reject(err);
+        console.warn("[MQTT Broker] WS could not start (TCP-only mode):", (err as NodeJS.ErrnoException).message);
+        wsServer!.close();
+        wsServer = null;
+        resolve(); // non-fatal — continue without WS
       });
       wsServer!.once("listening", () => {
         console.log(`[MQTT Broker] WebSocket listening on port ${wsPort}`);
@@ -126,11 +132,8 @@ export async function startEmbedded(
     });
   }
 
-  g._aedesBroker    = broker;
-  g._aedesTcpServer = tcpServer;
-  g._aedesPort      = port;
   g._aedesWsServer  = wsServer;
-  g._aedesWsPort    = wsPort ?? null;
+  g._aedesWsPort    = wsServer ? wsPort ?? null : null;
 }
 
 export async function stopEmbedded(): Promise<void> {
